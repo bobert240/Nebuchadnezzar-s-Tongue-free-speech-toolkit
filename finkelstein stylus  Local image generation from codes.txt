@@ -1,0 +1,211 @@
+finkelstein_stylus/ – Local image generation from codes
+finkelstein_stylus.py
+python
+#!/usr/bin/env python3
+"""
+Finkelstein’s Stylus – Local uncensored image generation from encoded concepts.
+Uses Stable Diffusion (diffusers) and optional Ollama paraphrasing.
+"""
+
+import argparse
+import json
+import random
+import requests
+import sys
+from pathlib import Path
+
+# ---------- Paraphrasing ----------
+def paraphrase_with_ollama(prompt, model="llama3.2:1b"):
+    try:
+        resp = requests.post("http://localhost:11434/api/generate",
+                             json={"model": model, "prompt": f"Rewrite this prompt concisely: {prompt}", "stream": False})
+        if resp.status_code == 200:
+            return resp.json()["response"].strip()
+    except:
+        pass
+    return prompt
+
+def simple_synonym_replace(prompt):
+    synonyms = {
+        "naked": ["unclothed", "without clothing"],
+        "blood": ["crimson fluid"],
+        "violent": ["forceful"]
+    }
+    for k, v in synonyms.items():
+        if k in prompt.lower():
+            prompt = prompt.replace(k, random.choice(v))
+    return prompt
+
+def paraphrase(prompt, use_ollama=False):
+    if use_ollama:
+        return paraphrase_with_ollama(prompt)
+    return simple_synonym_replace(prompt)
+
+# ---------- Codebook expansion ----------
+def expand_code(codebook, code, slots):
+    if code not in codebook.get("codes", {}):
+        raise KeyError(f"Code {code} not found.")
+    template = codebook["codes"][code]
+    for key, val in slots.items():
+        template = template.replace(f"{{{key}}}", val)
+    return template
+
+# ---------- Image generation ----------
+def generate_image(prompt, output_path, steps=20, seed=None):
+    from diffusers import StableDiffusionPipeline
+    import torch
+    if seed is None:
+        seed = random.randint(0, 2**32-1)
+    generator = torch.Generator(device="cpu").manual_seed(seed)
+    pipe = StableDiffusionPipeline.from_pretrained(
+        "runwayml/stable-diffusion-v1-5",
+        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+    )
+    if torch.cuda.is_available():
+        pipe = pipe.to("cuda")
+    image = pipe(prompt, num_inference_steps=steps, generator=generator).images[0]
+    image.save(output_path)
+    print(f"Saved: {output_path}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--codebook", required=True)
+    parser.add_argument("--code", required=True)
+    parser.add_argument("--slots", default="{}")
+    parser.add_argument("--output", default="output.png")
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--use_ollama", action="store_true")
+    args = parser.parse_args()
+    with open(args.codebook) as f:
+        codebook = json.load(f)
+    slots = json.loads(args.slots)
+    prompt = expand_code(codebook, args.code, slots)
+    print(f"Original: {prompt}")
+    final_prompt = paraphrase(prompt, args.use_ollama)
+    print(f"Paraphrased: {final_prompt}")
+    generate_image(final_prompt, args.output, args.steps)
+
+if __name__ == "__main__":
+    main()
+batch_finkelstein.py
+python
+#!/usr/bin/env python3
+"""
+Batch runner for Finkelstein’s Stylus – processes multiple codes.
+"""
+
+import argparse
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+def run_stylus(codebook, code, slots, output_path, steps, use_ollama, seed, dry_run):
+    cmd = [
+        sys.executable, "finkelstein_stylus.py",
+        "--codebook", codebook,
+        "--code", code,
+        "--slots", json.dumps(slots),
+        "--output", output_path,
+        "--steps", str(steps)
+    ]
+    if use_ollama:
+        cmd.append("--use_ollama")
+    if seed:
+        cmd.extend(["--seed", str(seed)])
+    if dry_run:
+        print("DRY RUN:", " ".join(cmd))
+        return 0
+    return subprocess.call(cmd)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--codebook", required=True)
+    parser.add_argument("--codes", nargs="+", required=True)
+    parser.add_argument("--slots_file", help="JSON mapping code->slots")
+    parser.add_argument("--output_dir", default="./output")
+    parser.add_argument("--steps", type=int, default=20)
+    parser.add_argument("--use_ollama", action="store_true")
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--dry_run", action="store_true")
+    args = parser.parse_args()
+
+    slots_map = {}
+    if args.slots_file:
+        with open(args.slots_file) as f:
+            slots_map = json.load(f)
+
+    out_dir = Path(args.output_dir)
+    if not args.dry_run:
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+    for code in args.codes:
+        slots = slots_map.get(code, {})
+        out_path = out_dir / f"{code}.png"
+        run_stylus(args.codebook, code, slots, str(out_path), args.steps, args.use_ollama, args.seed, args.dry_run)
+
+if __name__ == "__main__":
+    main()
+codebook_generator.py
+python
+#!/usr/bin/env python3
+"""
+Generates a codebook from a list of concepts using a local LLM (Ollama).
+"""
+
+import argparse
+import json
+import requests
+import sys
+
+def query_ollama(prompt, model="llama3.2:1b"):
+    resp = requests.post("http://localhost:11434/api/generate",
+                         json={"model": model, "prompt": prompt, "stream": False})
+    return resp.json()["response"].strip()
+
+def generate_template(concept, slots, model):
+    slots_str = ", ".join([f"{{{s}}}" for s in slots]) if slots else "none"
+    prompt = f"Write a short image prompt (max 20 words) for: {concept}. Use slots: {slots_str}. Output only the prompt."
+    return query_ollama(prompt, model)
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--concepts", required=True, help="File with one concept per line, optionally 'concept|slot1,slot2'")
+    parser.add_argument("--output", default="codebook.json")
+    parser.add_argument("--model", default="llama3.2:1b")
+    args = parser.parse_args()
+
+    entries = []
+    with open(args.concepts) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            if '|' in line:
+                concept, slots_str = line.split('|', 1)
+                slots = [s.strip() for s in slots_str.split(',')]
+            else:
+                concept, slots = line, []
+            entries.append((concept, slots))
+
+    codes = {}
+    templates = {}
+    for i, (concept, slots) in enumerate(entries):
+        code = f"ν{i+1}"
+        template = generate_template(concept, slots, args.model)
+        codes[code] = template
+        templates[code] = slots
+        print(f"{code}: {template}")
+
+    codebook = {
+        "version": "1.0",
+        "name": "Finkelstein's Stylus Generated Codebook",
+        "codes": codes,
+        "templates": templates
+    }
+    with open(args.output, 'w') as f:
+        json.dump(codebook, f, indent=2)
+    print(f"Saved {args.output}")
+
+if __name__ == "__main__":
+    main()
