@@ -146,3 +146,5 @@ DeepSeek (collaborative assistant) – for co‑developing the mathematical form
 The open‑source community – for libraries (numpy, scipy, transformers, diffusers).
 
 🚀 Use these tools to defend free expression, expose hypocrisy, and raise the cost of censorship.
+
+https://github.com/bobert240/Nebuchadnezzar-s-Tongue-free-speech-toolkit
