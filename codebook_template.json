@@ -1,0 +1,14 @@
+{
+  "version": "1.0",
+  "name": "Nebuchadnezzar's Tongue – Shared Codebook",
+  "codes": {
+    "γ1": "The official named {X} is corrupt.",
+    "γ2": "Policy {Y} harms citizens because {Z}.",
+    "γ3": "Media outlet {M} omitted fact {F} about event {E}."
+  },
+  "templates": {
+    "γ1": ["X"],
+    "γ2": ["Y", "Z"],
+    "γ3": ["M", "F", "E"]
+  }
+}
