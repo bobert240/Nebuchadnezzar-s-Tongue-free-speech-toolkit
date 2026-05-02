@@ -1,0 +1,220 @@
+a) Advanced encoder/decoder (GRTS + Nebuchadnezzar’s Tongue)
+encoder_grts.py (or rename to encoder.py if preferred)
+
+python
+#!/usr/bin/env python3
+"""
+GRTS + Nebuchadnezzar’s Tongue Encoder
+Encodes GRTS function calls or arbitrary messages into neutral JSON using a codebook.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+DEFAULT_CODEBOOK = {
+    "version": "1.0",
+    "name": "GRTS + Nebuchadnezzar’s Tongue",
+    "codes": {
+        "γ": "gc_consciousness",
+        "Ψ": "alienation_idx",
+        "Rθ": "rev_potential",
+        "δ": "stochastic_leap_mag"
+    },
+    "templates": {
+        "simulate_consciousness": {
+            "code": "sim_cons",
+            "slots": ["γ0", "Ψ", "t_max", "events"]
+        },
+        "vanguard_leap": {
+            "code": "van_leap",
+            "slots": ["vanguard_factor", "event_magnitude"]
+        }
+    }
+}
+
+def load_codebook(path=None):
+    if path and Path(path).exists():
+        with open(path, 'r') as f:
+            return json.load(f)
+    return DEFAULT_CODEBOOK
+
+def encode_function(function_name, params, codebook=None, metadata=None):
+    cb = load_codebook(codebook)
+    template = cb.get("templates", {}).get(function_name)
+    if not template:
+        raise ValueError(f"Unknown function: {function_name}")
+    required = set(template["slots"])
+    provided = set(params.keys())
+    if not required.issubset(provided):
+        missing = required - provided
+        raise ValueError(f"Missing slots: {missing}")
+    encoded = {
+        "code": template["code"],
+        "slots": {k: params[k] for k in template["slots"]},
+        "metadata": metadata or {"source": "grts_encoder", "timestamp": "2025-08-11T20:00:00Z"}
+    }
+    return encoded
+
+if __name__ == "__main__":
+    # Example
+    params = {"γ0": 0.48, "Ψ": 0.93, "t_max": 6, "events": [(0,0.18),(3,0.22)]}
+    encoded = encode_function("simulate_consciousness", params)
+    print(json.dumps(encoded, indent=2))
+decoder_grts.py (or decoder.py)
+
+python
+#!/usr/bin/env python3
+"""
+GRTS + Nebuchadnezzar’s Tongue Decoder
+Decodes neutral JSON back to function name and parameters.
+"""
+
+import json
+import sys
+from pathlib import Path
+
+DEFAULT_CODEBOOK = {
+    "version": "1.0",
+    "name": "GRTS + Nebuchadnezzar’s Tongue",
+    "templates": {
+        "simulate_consciousness": {"code": "sim_cons", "slots": ["γ0", "Ψ", "t_max", "events"]},
+        "vanguard_leap": {"code": "van_leap", "slots": ["vanguard_factor", "event_magnitude"]}
+    }
+}
+
+def load_codebook(path=None):
+    if path and Path(path).exists():
+        with open(path, 'r') as f:
+            return json.load(f)
+    return DEFAULT_CODEBOOK
+
+def decode(encoded_json, codebook=None):
+    cb = load_codebook(codebook)
+    if isinstance(encoded_json, str):
+        encoded = json.loads(encoded_json)
+    else:
+        encoded = encoded_json
+    code = encoded.get("code")
+    slots = encoded.get("slots", {})
+    function_name = None
+    for name, tmpl in cb.get("templates", {}).items():
+        if tmpl.get("code") == code:
+            function_name = name
+            break
+    if not function_name:
+        raise ValueError(f"Unknown code: {code}")
+    required = cb["templates"][function_name]["slots"]
+    params = {slot: slots.get(slot) for slot in required}
+    return function_name, params
+
+if __name__ == "__main__":
+    with open(sys.argv[1]) as f:
+        encoded = json.load(f)
+    func, params = decode(encoded)
+    print(f"Function: {func}\nParameters: {params}")
+b) Simple standalone encoder/decoder (original Nebuchadnezzar’s Tongue)
+encoder_simple.py
+
+python
+#!/usr/bin/env python3
+"""
+Simple Nebuchadnezzar’s Tongue encoder.
+Takes a natural language message, a codebook, and outputs JSON.
+"""
+
+import json
+import sys
+import re
+
+def load_codebook(path):
+    with open(path, 'r') as f:
+        return json.load(f)
+
+def find_best_template(message, codebook):
+    # Very simple: return first matching code where the message contains the template's idea
+    # For production, use a small LLM or manual selection.
+    for code, template in codebook.get("codes", {}).items():
+        # Extract slot placeholders
+        placeholders = re.findall(r'\{([^}]+)\}', template)
+        # crude check: if any word matches a slot name? Not robust
+        if placeholders:
+            # try to extract values
+            slots = {}
+            for p in placeholders:
+                # find a word that might be the value (e.g., a proper noun)
+                words = re.findall(r'\b[A-Z][a-z]+\b', message)
+                if words:
+                    slots[p] = words[0]
+                else:
+                    slots[p] = "unknown"
+            return code, slots
+    return None, {}
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python encoder_simple.py <codebook.json> '<message>'")
+        sys.exit(1)
+    codebook_path = sys.argv[1]
+    message = sys.argv[2]
+    codebook = load_codebook(codebook_path)
+    code, slots = find_best_template(message, codebook)
+    encoded = {"code": code, "slots": slots, "metadata": {"source": "simple_encoder"}}
+    print(json.dumps(encoded, indent=2))
+decoder_simple.py
+
+python
+#!/usr/bin/env python3
+"""
+Simple Nebuchadnezzar’s Tongue decoder.
+Expands JSON into full message.
+"""
+
+import json
+import sys
+
+def load_codebook(path):
+    with open(path, 'r') as f:
+        return json.load(f)
+
+def decode(encoded_json, codebook):
+    if isinstance(encoded_json, str):
+        encoded = json.loads(encoded_json)
+    else:
+        encoded = encoded_json
+    code = encoded["code"]
+    slots = encoded.get("slots", {})
+    template = codebook["codes"].get(code)
+    if not template:
+        return f"[Unknown code: {code}]"
+    result = template
+    for key, value in slots.items():
+        result = result.replace(f"{{{key}}}", value)
+    return result
+
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        print("Usage: python decoder_simple.py <codebook.json> <encoded.json>")
+        sys.exit(1)
+    codebook = load_codebook(sys.argv[1])
+    with open(sys.argv[2], 'r') as f:
+        encoded = json.load(f)
+    print(decode(encoded, codebook))
+c) Codebook template
+codebook_template.json (as provided)
+
+json
+{
+  "version": "1.0",
+  "name": "Nebuchadnezzar's Tongue – Shared Codebook",
+  "codes": {
+    "γ1": "The official named {X} is corrupt.",
+    "γ2": "Policy {Y} harms citizens because {Z}.",
+    "γ3": "Media outlet {M} omitted fact {F} about event {E}."
+  },
+  "templates": {
+    "γ1": ["X"],
+    "γ2": ["Y", "Z"],
+    "γ3": ["M", "F", "E"]
+  }
+}
